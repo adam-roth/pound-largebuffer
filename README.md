@@ -47,7 +47,9 @@ But I am running pound, and with JSONP the only HTTP method you can use to submi
 
 Pound does provide the `--with-maxbuf` configuration option, and various references mentioned that this could be used to increase the maximum URI length supported by pound.  Unfortunately, this option also controls the size of a number of other, _completely unrelated_ buffers, and **all of them are allocated on the stack!**  
 
-So, increase the `--with-maxbuf` option to a size large enough to allow a reasonably sized image to be uploaded using a GET request, and pound is liable immediately exceed the allotted stack-size and then segfault.  That's a problem!  And since there are a massive number of buffers that are sized according to the `--with-maxbuf` option (including ones used to store a string representation of an IP address...which never needs a 4K buffer, let alone anything larger), increasing the system stack-size isn't really a solution as your memory footprint would baloon to several times what it actually required.
+So, increase the `--with-maxbuf` option to a size large enough to allow a reasonably sized image to be uploaded using a GET request, and pound is liable immediately exceed the allotted stack-size and then segfault.  That's a problem!  
+
+And since there are a massive number of buffers that are sized according to the `--with-maxbuf` option (including ones used to store a string representation of an IP address...which never needs a 4K buffer, let alone anything larger), increasing the system stack-size isn't really a solution as your memory footprint would baloon to several times what it actually required.
 
 This project attempts to solve that problem, by providing an option that modifies just those buffers that are actually relevant to parsing an HTTP request.  It also brings in dynamic memory allocation and more intelligent scanning of the inbound request to help ensure that the maximum buffer size is only allocated if the request actually calls for it.
 
