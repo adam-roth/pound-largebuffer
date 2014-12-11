@@ -45,26 +45,26 @@ Because I have an application that provides a JSONP webservice API, and a requir
 
 But I am running pound, and with JSONP the only HTTP method you can use to submit a request is GET.  This requires that the image data be shipped as a URL parameter (base64-encoded), and naturally results in some very long request URI's.  Much longer than pound's default URI length of 4096 bytes.  
 
-Pound does provide the `--wi`
+Pound does provide the `--with-maxbuf` configuration option, and various references mentioned that this could be used to increase the maximum URI length supported by pound.  Unfortunately, this option also controls the size of a number of other, _completely unrelated_ buffers, and **all of them are allocated on the stack!**  
 
-**_Why should I use this library?_**<br />
-Use this library if you've got a Core Data app and better things to do with your time than worry about whether or not you are accessing your data "correctly".  This code will give you a data layer that just works, freeing you up to focus on things that actually matter, like building your app.
+So, increase the `--with-maxbuf` option to a size large enough to allow a reasonably sized image to be uploaded using a GET request, and pound is liable immediately exceed the allotted stack-size and then segfault.  That's a problem!  And since there are a massive number of buffers that are sized according to the `--with-maxbuf` option (including ones used to store a string representation of an IP address...which never needs a 4K buffer, let alone anything larger), increasing the system stack-size isn't really a solution as your memory footprint would baloon to several times what it actually required.
 
-**_Why should I NOT use this library?_**<br />
-Don't use this library if your app is performance-limited by its data layer.  Such cases are probably rare with iOS apps, but you should be aware that synchronizing every access to the data layer is relatively costly and could conceivably degrade performance in a data-intensive app.  
+This project attempts to solve that problem, by providing an option that modifies just those buffers that are actually relevant to parsing an HTTP request.  It also brings in dynamic memory allocation and more intelligent scanning of the inbound request to help ensure that the maximum buffer size is only allocated if the request actually calls for it.
 
-You may also want to avoid this code if your app has a particularly large or complex data model.  I'm not saying that it won't work for you (and I can't even point to any specific reason why it _might_ not work for you), but so far it has only been tested and validated in simpler apps with not more than moderately complex data models.  If you need to be absolutely sure that things are going to work, stick to the old-fashioned way.
+All because I need to send large files to a JSONP webservice through pound.  That's why this project was created.
 
-Also, if you like setting up `NSOperationQueue`'s and `dispatch_async()` calls are the only sunshine in your day then you probably don't want to use this code.
+**_Why should I use this project?_**<br />
+Use this project if you've got a corner-case that requires you to submit large GET requests to a webserver that is running behind pound, or any similarly esoteric use-case that benefits from being able to give pound a very large URI or request header without having it bail out with a [code 414](http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html).
+
+**_Why should I NOT use this project?_**<br />
+Don't use this project in memory-constrained situations.  Also don't need it if you care about supporting clients that use the 'chunked' transfer encoding.  Or if you don't require arbitrarily large URI and header sizes in your application.  
+
+Unless you need to do something that cannot be done using the official version of pound, you should absolutely stick with the official version of pound.
 
 **_What are your license terms?_**<br />
-License terms?  Really???  Look, this is public code in a public repository.  I put it here knowing that.  It would be absurd for me to assert that I have any right to set conditions on how people may use this code after I have knowingly made it publicly available to anyone who might stumble across it.  I know some other people like to do that, but let's try not to stoop to their level, shall we?
-
-So my license terms are simple.  Use this code if you want, otherwise don't.  That's it.  
+Pound is licensed under the GPL.  Not what I'd personally pick, but it is what it is.
 
 
-### Miscellaneous
+### Acknowledgements
 
-Another excellent project that makes Core Data _much_ easier to work with can be found here:
-
-https://github.com/halostatue/coredata-easyfetch
+This project was supported and made possible by Inspection Toolbox.  Find out more at http://www.inspectiontoolbox.com/.
