@@ -11,7 +11,7 @@ This project modifies the pound reverse-proxy and load-balancer (v2.6) to suppor
 
 This project configures and builds the same as pound.  Thus a good resource to consult is the [official reference documentation](http://www.apsis.ch/pound/).
 
-In addition to the standard options when configuring your build, this project adds an additional `--with-maxrequest=nnn` configuration option that can be used to specifiy the maximum allowed request/URI size.  For example, to allow URI's of up to 12MiB in length, do:
+In addition to the standard options when configuring your build, this project adds an optional `--with-maxrequest=nnn` configuration option that can be used to specifiy the maximum allowed request/URI size.  For example, to allow URI's of up to 12MiB in length, do:
 
 `./configure --with-maxrequest=12582912`
 
