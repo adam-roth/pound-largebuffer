@@ -57,7 +57,7 @@ All because I need to send large files to a JSONP webservice through pound.  Tha
 Use this project if you've got a corner-case that requires you to submit large GET requests to a webserver that is running behind pound, or any similarly esoteric use-case that benefits from being able to give pound a very large URI or request header without having it bail out with a [code 414](http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html).
 
 **_Why should I NOT use this project?_**<br />
-Don't use this project in memory-constrained situations.  Also don't need it if you care about supporting clients that use the 'chunked' transfer encoding.  Or if you don't require arbitrarily large URI and header sizes in your application.  
+Don't use this project in memory-constrained situations.  Also don't use it if you care about supporting clients that use the 'chunked' transfer encoding.  Or if you don't require arbitrarily large URI and header sizes in your application.  
 
 Unless you need to do something that cannot be done using the official version of pound, you should absolutely stick with the official version of pound.
 
