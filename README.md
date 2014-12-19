@@ -31,11 +31,9 @@ There are a number of important limitations that should be considered when using
 
 1.  Only the HTTP methods described in [RFC2616](http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html) are supported/tested.  Other methods may fail, particularly if they rely upon content sent in the request body.
 
-2.  The 'chunked' transfer encoding is not currently supported.  This is a fairly substantial omission, as support for this encoding is a mandatory part of the HTTP 1.1 spec.  However, my primary use-case does not require 'chunked' transfers, although support for this will likely be restored as soon as possible.
+2.  If using the pre-existing `--with-maxbuf` configuration option to increase the maximum allowed header size, be aware that this project does not modify how the associated buffers are handled.  The main consequence of this is that setting a `--with-maxbuf` value that is too large can and will cause pound to immediately segfault.  You should keep the value of this parameter as low as possible, or otherwise increase the stack-size settings on your machine to better support larger values
 
-3.  If using the pre-existing `--with-maxbuf` configuration option to increase the maximum allowed header size, be aware that this project does not modify how the associated buffers are handled.  The main consequence of this is that setting a `--with-maxbuf` value that is too large can and will cause pound to immediately segfault.  You should keep the value of this parameter as low as possible, or otherwise increase the stack-size settings on your machine to better support larger values
-
-4.  If you use the `--with-maxrequest` configuration option to increase the maximum allowed request/URI size, pound's memory usage will naturally increase somewhat (though not as much as you might think, as in most places the need to preallocate a maximally-sized buffer is deferred until it's known that the request will actually require that much memory).  Please ensure that your server has sufficient RAM to accommodate the increased memory load, keeping in mind that pound is multithreaded and may be processing a large number of requests concurrently.
+3.  If you use the `--with-maxrequest` configuration option to increase the maximum allowed request/URI size, pound's memory usage will naturally increase somewhat (though not as much as you might think, as in most places the need to preallocate a maximally-sized buffer is deferred until it's known that the request will actually require that much memory).  Please ensure that your server has sufficient RAM to accommodate the increased memory load, keeping in mind that pound is multithreaded and may be processing a large number of requests concurrently.
 
 
 ### FAQ
@@ -59,7 +57,7 @@ All because I need to send large files to a JSONP webservice through pound.  Tha
 Use this project if you've got a corner-case that requires you to submit large GET requests to a webserver that is running behind pound, or any similarly esoteric use-case that benefits from being able to give pound a very large URI or request header without having it bail out with a [code 414](http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html).
 
 **_Why should I NOT use this project?_**<br />
-Don't use this project in memory-constrained situations.  Also don't use it if you care about supporting clients that use the 'chunked' transfer encoding.  Or if you don't require arbitrarily large URI and header sizes in your application.  
+Don't use this project in memory-constrained situations.  Or if you don't require arbitrarily large URI and header sizes in your application.  
 
 Unless you need to do something that cannot be done using the official version of pound, you should absolutely stick with the official version of pound.
 
