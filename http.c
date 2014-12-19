@@ -560,6 +560,8 @@ do_http(thr_arg *arg)
     int bytesToCopy = 0;
     int parseBody = -1;
     int contentLen = -1;
+    chunked = 0;
+    int crlfLength = 2;
     int workingBufferSize = MAXBUF;
     char* buf = malloc(MAXBUF);
     char* safeBuf = malloc(MAXREQUEST);
@@ -703,38 +705,116 @@ do_http(thr_arg *arg)
 			contentLen = atoi(numericPart);
 		}
 
+		if (strstr(buf, "Transfer-Encoding: chunked") == buf || strstr(buf, "Transfer-encoding: chunked") == buf || strstr(buf, "transfer-encoding: chunked") == buf) {
+			//aroth:  if the client indicates that the body content is chunked, note it so that we can handle the request body correctly
+			chunked = 1;
+		}
+
 		checkBytes += bytesRead;
-		if (checkBytes >= maxLen || ((bytesRead == 2 && safeBuf[checkBytes - 1] == 10) && (parseBody == 0 || contentLen == 0))) {
+		if (checkBytes >= maxLen || ((bytesRead <= 2 && safeBuf[checkBytes - 1] == 10) && (parseBody == 0 || contentLen == 0))) {
 			//aroth:  stop processing if we exceed the maximum allowed size or if we receive a single line by itself, which indicates the end of the header section (which is all we really care about here)
 			break;
 		}
-		else if (bytesRead == 2 && safeBuf[checkBytes - 1] == 10 && contentLen > 0) {
-			//FIXME:  should also support chunked encoding, but for now we do not (such requests will fail as timeouts, because the body will be dropped)
+		else if (bytesRead <= 2 && safeBuf[checkBytes - 1] == 10 && (contentLen > 0 || chunked > 0)) {
 			//aroth:  we've hit the end of the header section, and it fit within our configured 'MAXREQUEST' threshold, but there's more content to parse and preserve
-			maxLen = checkBytes + contentLen;// + 1;
+			if (contentLen > 0) {
+				maxLen = checkBytes + contentLen;// + 1;
 
-			completeRequest = malloc(maxLen);
-			memset(completeRequest, 0, maxLen);
-			memcpy(completeRequest, safeBuf, checkBytes);
+				completeRequest = malloc(maxLen);
+				memset(completeRequest, 0, maxLen);
+				memcpy(completeRequest, safeBuf, checkBytes);
 
-			free(safeBuf);
-			safeBuf = completeRequest;
+				free(safeBuf);
+				safeBuf = completeRequest;
 
-			while((bytesRead = BIO_read(cl, buf, contentLen < MAXBUF ? contentLen : MAXBUF - 1)) > 0) {
-				bytesToCopy = checkBytes + bytesRead < maxLen ? bytesRead : maxLen - checkBytes;
-				if (bytesToCopy > 0) {
-					memcpy(&safeBuf[checkBytes], buf, bytesToCopy);
+				while((bytesRead = BIO_read(cl, buf, contentLen < MAXBUF ? contentLen : MAXBUF - 1)) > 0) {
+					bytesToCopy = checkBytes + bytesRead < maxLen ? bytesRead : maxLen - checkBytes;
+					if (bytesToCopy > 0) {
+						memcpy(&safeBuf[checkBytes], buf, bytesToCopy);
+					}
+
+					checkBytes += bytesRead;
+					contentLen -= bytesRead;
+					if (contentLen <= 0) {
+						break;
+					}
+
 				}
-
-				checkBytes += bytesRead;
-				contentLen -= bytesRead;
-				if (contentLen <= 0) {
-					break;
-				}
-
+				//safeBuf[maxLen - 1] = '\n';  //linefeed
+				break;
 			}
-			//safeBuf[maxLen - 1] = '\n';  //linefeed
-			break;
+			else {
+				//need to handle chunked encoding; because a single line may exceed our MAXBUF size, we need to actually parse the chunked encoding and read according to the provided chunk sizes
+				crlfLength = bytesRead;  //XXX:  will only be usable if the client is consistent about always sending either a CRLF (as the spec requires) or a LF (as the spec says should be permitted); will break if the client alternates arbirarily between the two
+				while (1) {
+					//read a single line, and parse the size of the next chunk
+					bytesRead = BIO_gets(cl, buf, MAXBUF - 1);
+					if (bytesRead < 1) {
+						//shouldn't happen; nothing we can do
+						break;
+					}
+
+					if (checkBytes + bytesRead >= maxLen) {
+						//reallocate the buffer so that we can continue
+						completeRequest = malloc((checkBytes + bytesRead) * 1.33);		//maintain a spare area of 33% of our current buffer size
+						memcpy(completeRequest, safeBuf, checkBytes);					//copy over everything we've currently recorded
+
+						//exchange the buffers
+						free(safeBuf);
+						safeBuf = completeRequest;
+						maxLen = (checkBytes + bytesRead) * 1.33;
+					}
+
+					//bytesToCopy = checkBytes + bytesRead < maxLen ? bytesRead : maxLen - checkBytes;
+					if (bytesRead > 0) {
+						memcpy(&safeBuf[checkBytes], buf, bytesRead);
+					}
+					checkBytes += bytesRead;
+
+					chunked = strtol(buf, NULL, 16);// + crlfLength;  //allow extra characters for the trailing CRLF
+					if (checkBytes + chunked + 2 >= maxLen) {
+						//reallocate the buffer so that we can continue
+						completeRequest = malloc((checkBytes + chunked) * 1.33);		//maintain a spare area of 33% of our current buffer size
+						memcpy(completeRequest, safeBuf, checkBytes);					//copy over everything we've currently recorded
+
+						//exchange the buffers
+						free(safeBuf);
+						safeBuf = completeRequest;
+						maxLen = (checkBytes + chunked) * 1.33;
+					}
+
+					if (chunked > 0 /*crlfLength*/) {
+						//read the corresponding data directly into our buffer; we've already determined that it will fit
+						BIO_read(cl, &safeBuf[checkBytes], chunked);			//get the data
+						checkBytes += chunked;
+						bytesRead = BIO_gets(cl, &safeBuf[checkBytes], 2);		//get the CRLF or LF
+						if (bytesRead > 0) {
+							checkBytes += bytesRead;
+						}
+
+					}
+					else {
+						//we found the last, empty chunk; however there may be trailing footers that we should preserve, so continue reading lines until we find an empty one, which should indicate the end of the request
+						while((bytesRead = BIO_gets(cl, buf, MAXBUF - 1)) > 0) {
+							bytesToCopy = checkBytes + bytesRead < maxLen ? bytesRead : maxLen - checkBytes;
+							if (bytesToCopy > 0) {
+								memcpy(&safeBuf[checkBytes], buf, bytesToCopy);
+							}
+
+							checkBytes += bytesRead;
+							if (checkBytes >= maxLen || (bytesRead <= 2 && safeBuf[checkBytes - 1] == 10)) {
+								//done reading trailers
+								break;
+							}
+						}
+					}
+				}
+
+				chunked = 0;
+
+				//done processing chunked request
+				break;
+			}
 		}
 
 	}
