@@ -5,7 +5,7 @@ A more flexible load-balancer for those complicated modern corner-cases.
 
 ### About
 
-This project modifies the pound reverse-proxy and load-balancer (v2.6) to support configuration of arbitrarily large maximum request/header sizes.  This can be useful if you need to support some esoteric use-cases, such as submitting encoded file data to a JSONP endpoint using a GET request (because POST requests are not usable with JSONP). 
+This project modifies the pound reverse-proxy and load-balancer (v2.7) to support configuration of arbitrarily large maximum request/header sizes.  This can be useful if you need to support some esoteric use-cases, such as submitting encoded file data to a JSONP endpoint using a GET request (because POST requests are not usable with JSONP). 
 
 ### Building
 
