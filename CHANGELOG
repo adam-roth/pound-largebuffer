@@ -1,4 +1,120 @@
 ------------------------------------------------------------------------
+r81 | roseg | 2015-01-26 17:47:53 +0100 (Mon, 26 Jan 2015) | 30 lines
+
+Release 2.7
+
+Enhancements:
+    - added support for larger DH keys + compile-time parameter for DH bits (workaround for OpenSSL limitation)
+    - added support for elliptical curve encryption
+    - added protocol version in X-SSL-cipher (Tom Fitzhenry)
+    - added "Disable PROTO" directives (fix for Poodle vulnerability)
+    - added Cert, Disable and Cipher directives for HTTPS back-ends. The directive HTTPS "cert" no longer supported.
+    - added filtering of "Expect: 100-continue" headers
+    - Add support for PATCH HTTP method
+    - Anonymise configuration option - show last client address byte as 0 (based on an idea by Christian Doering)
+    - SSLAllowClientRenegotiation (based on a patch from Joe Gooch)
+    - SSLHonorCipherOrder (based on a patch from Joe Gooch)
+    - Certificate alternate names support (based on a patch from Jonas Pasche)
+    - poundctl shows the length of the request queue (based on a request from Leo)
+
+Bug fixes:
+    - fixed lh_retrieve warning
+    - fixed potential memory leak on client certificates
+    - fixed alt names problem (Joe Gooch)
+    - removed debugging messages
+    - fixed address comparison for RewriteLocation (IPv4/IPv6 problem - Christopher Bartz)
+    - re-patched the redirect patch (Frank Schmierler)
+    - fixed RPC handling (Frank Schmierler)
+    - sanitize URLs for redirection (prevent CSRF)
+    - SSL disable empty fragments + SSL disable compression (CRIME attack prevention)
+    - fixed bug in configuration of DISABLED directive
+    - changed the log level from WARNING to NOTICE if the thread arg is NULL
+    - fixed testing of gcc options
+
+------------------------------------------------------------------------
+r80 | roseg | 2014-12-29 11:47:54 +0100 (Mon, 29 Dec 2014) | 10 lines
+
+Release 2.7f
+
+Enhancements:
+    - compile-time parameter for DH bits (workaround for OpenSSL limitation)
+
+Bug fixes:
+    - allow '-' and '=' again in URLs (redirect)
+    - fixed lh_retrieve warning
+    - fixed "Disable" regex typo
+
+------------------------------------------------------------------------
+r79 | roseg | 2014-12-08 14:39:00 +0100 (Mon, 08 Dec 2014) | 12 lines
+
+Release 2.7e
+
+Enhancements:
+    - added support for elliptical curve encryption
+    - added support for larger DH keys
+    - added protocol version in X-SSL-cipher (Tom Fitzhenry)
+
+Bug fixes:
+    - fixed potential memory leak on client certificates
+    - fixed alt names problem (Joe Gooch)
+    - removed debugging messages
+
+------------------------------------------------------------------------
+r78 | roseg | 2014-10-18 12:36:28 +0200 (Sat, 18 Oct 2014) | 10 lines
+
+Release 2.7d
+
+Enhancements:
+    - added "Disable PROTO" directives (fix for Poodle vulnerability)
+    - added Cert, Disable and Cipher directives for HTTPS back-ends. The
+      directive HTTPS "cert" no longer supported.
+
+Bug fixes:
+    - fixed address comparison for RewriteLocation (IPv4/IPv6 problem - Christopher Bartz)
+
+------------------------------------------------------------------------
+r77 | roseg | 2014-04-21 13:16:07 +0200 (Mon, 21 Apr 2014) | 9 lines
+
+Release 2.7c
+
+Enhancements:
+    - added filtering of "Expect: 100-continue" headers
+
+Bug fixes:
+    - re-patched the redirect patch (Frank Schmierler)
+    - fixed RPC handling (Frank Schmierler)
+
+------------------------------------------------------------------------
+r76 | roseg | 2013-09-26 14:33:21 +0200 (Thu, 26 Sep 2013) | 12 lines
+
+Release 2.7b
+
+Enhancements:
+    - Add support for PATCH HTTP method
+
+Bug fixes:
+    - sanitize URLs for redirection (prevent CSRF)
+    - SSL disable empty fragments
+    - SSL disable compression (CRIME attack prevention)
+    - fixed bug in configuration of DISABLED directive
+    - changed the log level from WARNING to NOTICE if the thread arg is NULL
+
+------------------------------------------------------------------------
+r75 | roseg | 2012-04-09 15:37:26 +0200 (Mon, 09 Apr 2012) | 12 lines
+
+Release 2.7a
+
+Enhancements:
+    - Anonymise configuration option - show last client address byte as 0 (based on an idea by Christian Doering)
+    - SSLAllowClientRenegotiation (based on a patch from Joe Gooch)
+    - SSLHonorCipherOrder (based on a patch from Joe Gooch)
+    - Certificate alternate names support (based on a patch from Jonas Pasche)
+    - poundctl shows the length of the request queue (based on a request from Leo)
+
+Bug fixes:
+    - fixed testing of gcc options
+
+------------------------------------------------------------------------
 r74 | roseg | 2011-12-28 14:57:45 +0100 (Wed, 28 Dec 2011) | 10 lines
 
 Release 2.6

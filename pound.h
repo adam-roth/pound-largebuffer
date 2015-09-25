@@ -8,12 +8,12 @@
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * Pound is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
@@ -267,6 +267,7 @@ extern char *user,              /* user to run as */
             *ctrl_name;         /* control socket name */
 
 extern int  numthreads,         /* number of worker threads */
+            anonymise,          /* anonymise client address */
             alive_to,           /* check interval for resurrection */
             daemonize,          /* run as daemon */
             log_facility,       /* log facility to use */
@@ -383,31 +384,35 @@ extern SERVICE          *services;  /* global services (if any) */
 typedef struct _pound_ctx {
     SSL_CTX             *ctx;
     char                *server_name;
+    unsigned char       **subjectAltNames;
+    unsigned int        subjectAltNameCount;
     struct _pound_ctx   *next;
 } POUND_CTX;
 
 /* Listener definition */
 typedef struct _listener {
-    struct addrinfo     addr;           /* IPv4/6 address */
-    int                 sock;           /* listening socket */
-    POUND_CTX           *ctx;           /* CTX for SSL connections */
-    int                 clnt_check;     /* client verification mode */
-    int                 noHTTPS11;      /* HTTP 1.1 mode for SSL */
-    char                *add_head;      /* extra SSL header */
-    regex_t             verb;           /* pattern to match the request verb against */
-    int                 to;             /* client time-out */
-    int                 has_pat;        /* was a URL pattern defined? */
-    regex_t             url_pat;        /* pattern to match the request URL against */
-    char                *err414,        /* error messages */
+    struct addrinfo     addr;               /* IPv4/6 address */
+    int                 sock;               /* listening socket */
+    POUND_CTX           *ctx;               /* CTX for SSL connections */
+    int                 clnt_check;         /* client verification mode */
+    int                 noHTTPS11;          /* HTTP 1.1 mode for SSL */
+    char                *add_head;          /* extra SSL header */
+    regex_t             verb;               /* pattern to match the request verb against */
+    int                 to;                 /* client time-out */
+    int                 has_pat;            /* was a URL pattern defined? */
+    regex_t             url_pat;            /* pattern to match the request URL against */
+    char                *err414,            /* error messages */
                         *err500,
                         *err501,
                         *err503;
-    LONG                max_req;        /* max. request size */
-    MATCHER             *head_off;      /* headers to remove */
-    int                 rewr_loc;       /* rewrite location response */
-    int                 rewr_dest;      /* rewrite destination header */
-    int                 disabled;       /* true if the listener is disabled */
-    int                 log_level;      /* log level for this listener */
+    LONG                max_req;            /* max. request size */
+    MATCHER             *head_off;          /* headers to remove */
+    int                 rewr_loc;           /* rewrite location response */
+    int                 rewr_dest;          /* rewrite destination header */
+    int                 disabled;           /* true if the listener is disabled */
+    int                 log_level;          /* log level for this listener */
+    int                 allow_client_reneg; /* Allow Client SSL Renegotiation */
+    int                 disable_ssl_v2;     /* Disable SSL version 2 */
     SERVICE             *services;
     struct _listener    *next;
 }   LISTENER;
@@ -423,6 +428,9 @@ typedef struct _thr_arg {
     struct _thr_arg *next;
 }   thr_arg;                        /* argument to processing threads: socket, origin */
 
+/* Track SSL handshare/renegotiation so we can reject client-renegotiations. */
+typedef enum { RENEG_INIT=0, RENEG_REJECT, RENEG_ALLOW, RENEG_ABORT } RENEG_STATE;
+
 /* Header types */
 #define HEADER_ILLEGAL              -1
 #define HEADER_OTHER                0
@@ -436,6 +444,7 @@ typedef struct _thr_arg {
 #define HEADER_USER_AGENT           8
 #define HEADER_URI                  9
 #define HEADER_DESTINATION          10
+#define HEADER_EXPECT               11
 
 /* control request stuff */
 typedef enum    {
@@ -480,6 +489,11 @@ extern int  put_thr_arg(thr_arg *);
 extern thr_arg  *get_thr_arg(void);
 
 /*
+ * get the current queue length
+ */
+extern  get_thr_qlen(void);
+
+/*
  * handle an HTTP request
  */
 extern void *thr_http(void *);
@@ -517,7 +531,7 @@ extern BACKEND  *get_backend(SERVICE *const, const struct addrinfo *, const char
 /*
  * Search for a host name, return the addrinfo for it
  */
-extern int  get_host(char *const, struct addrinfo *);
+extern int  get_host(char *const, struct addrinfo *, int);
 
 /*
  * Find if a redirect needs rewriting
@@ -581,7 +595,7 @@ extern void config_parse(const int, char **const);
  */
 #define N_RSA_KEYS  11
 #ifndef T_RSA_KEYS
-#define T_RSA_KEYS  1800
+#define T_RSA_KEYS  7200
 #endif
 
 /*
@@ -593,6 +607,11 @@ extern RSA  *RSA_tmp_callback(SSL *, int, int);
  * return a pre-generated RSA key
  */
 extern DH   *DH_tmp_callback(SSL *, int, int);
+
+/*
+ * Renegotiation callback
+ */
+extern void SSLINFO_callback(const SSL *s, int where, int rc);
 
 /*
  * expiration stuff

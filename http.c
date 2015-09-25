@@ -52,11 +52,15 @@ err_reply(BIO *const c, const char *head, const char *txt)
 static void
 redirect_reply(BIO *const c, const char *url, const int code)
 {
-	//aroth:  url's may be up to MAXREQUEST in size; do not use MAXBUF here
-    char* code_msg;
-	char* rep = malloc(MAXREQUEST);
-    char* cont = malloc(MAXREQUEST);
+	//aroth:  url's may be up to MAXREQUEST in size; do not use MAXBUF here unless we're sure everything will fit
+	int     i, j, bufSize;
+	char* code_msg, rep, cont, safe_url;
 
+	bufSize = (strlen(url) < MAXBUF - 1024) ? MAXBUF : MAXREQUEST;		//aroth:  only allocate 'MAXREQUEST' if we really need to
+
+	rep = malloc(bufSize);
+    cont = malloc(bufSize);
+    safe_url = malloc(bufSize);
 
     switch(code) {
     case 301:
@@ -69,18 +73,36 @@ redirect_reply(BIO *const c, const char *url, const int code)
         code_msg = "Found";
         break;
     }
-    snprintf(cont, MAXREQUEST,
+
+    /*
+	 * Make sure to return a safe version of the URL (otherwise CSRF becomes a possibility)
+	 */
+    //aroth:  add curly braces, use 'bufSize' instead of MAXBUF
+	memset(safe_url, 0, bufSize);
+	for(i = j = 0; i < bufSize && j < bufSize && url[i]; i++) {
+		if(isalnum(url[i]) || url[i] == '_' || url[i] == '.' || url[i] == ':' || url[i] == '/'
+		|| url[i] == '?' || url[i] == '&' || url[i] == ';' || url[i] == '-' || url[i] == '=') {
+			safe_url[j++] = url[i];
+		}
+		else {
+			sprintf(safe_url + j, "%%%02x", url[i]);
+			j += 3;
+		}
+	}
+
+    snprintf(cont, bufSize,
         "<html><head><title>Redirect</title></head><body><h1>Redirect</h1><p>You should go to <a href=\"%s\">%s</a></p></body></html>",
-        url, url);
+        safe_url, safe_url);
     snprintf(rep, sizeof(rep),
         "HTTP/1.0 %d %s\r\nLocation: %s\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n",
-        code, code_msg, url, strlen(cont));
+        code, code_msg, safe_url, strlen(cont));
     BIO_write(c, rep, strlen(rep));
     BIO_write(c, cont, strlen(cont));
     BIO_flush(c);
 
     free(rep);
     free(cont);
+    free(safe_url);
 
     return;
 }
@@ -282,6 +304,11 @@ copy_chunks(BIO *const cl, BIO *const be, LONG *res_bytes, const int no_write, c
 
 static int  err_to = -1;
 
+typedef struct {
+int         timeout;
+	RENEG_STATE *reneg_state;
+} BIO_ARG;
+
 /*
  * Time-out for client read/gets
  * the SSL manual says not to do it, but it works well enough anyway...
@@ -289,6 +316,7 @@ static int  err_to = -1;
 static long
 bio_callback(BIO *const bio, const int cmd, const char *argp, int argi, long argl, long ret)
 {
+	BIO_ARG *bio_arg;
     struct pollfd   p;
     int             to, p_res, p_err;
 
@@ -296,10 +324,22 @@ bio_callback(BIO *const bio, const int cmd, const char *argp, int argi, long arg
         return ret;
 
     /* a time-out already occured */
-    if((to = *((int *)BIO_get_callback_arg(bio)) * 1000) < 0) {
+    if((bio_arg = (BIO_ARG*)BIO_get_callback_arg(bio))==NULL)
+            return ret;
+    if((to = bio_arg->timeout * 1000) < 0) {
         errno = ETIMEDOUT;
         return -1;
     }
+
+    /* Renegotiations */
+	/* logmsg(LOG_NOTICE, "RENEG STATE %d", bio_arg->reneg_state==NULL?-1:*bio_arg->reneg_state); */
+	if (bio_arg->reneg_state != NULL && *bio_arg->reneg_state == RENEG_ABORT) {
+		logmsg(LOG_NOTICE, "REJECTING renegotiated session");
+		errno = ECONNABORTED;
+		return -1;
+	}
+	if (to == 0)
+		return ret;
 
     for(;;) {
         memset(&p, 0, sizeof(p));
@@ -335,7 +375,7 @@ bio_callback(BIO *const bio, const int cmd, const char *argp, int argi, long arg
             return -1;
         case 0:
             /* timeout - mark the BIO as unusable for the future */
-            BIO_set_callback_arg(bio, (char *)&err_to);
+        	bio_arg->timeout = err_to;
 #ifdef  EBUG
             logmsg(LOG_WARNING, "(%lx) CALLBACK timeout poll after %d secs: %s",
                 pthread_self(), to / 1000, strerror(p_err));
@@ -576,6 +616,14 @@ do_http(thr_arg *arg)
     regmatch_t          matches[4];
     struct linger       l;
     double              start_req, end_req;
+    RENEG_STATE         reneg_state;
+	BIO_ARG             ba1, ba2;
+
+	reneg_state = RENEG_INIT;
+	ba1.reneg_state =  &reneg_state;
+	ba2.reneg_state = &reneg_state;
+	ba1.timeout = 0;
+	ba2.timeout = 0;
 
     from_host = ((thr_arg *)arg)->from_host;
     memcpy(&from_host_addr, from_host.ai_addr, from_host.ai_addrlen);
@@ -584,6 +632,9 @@ do_http(thr_arg *arg)
     sock = ((thr_arg *)arg)->sock;
     free(((thr_arg *)arg)->from_host.ai_addr);
     free(arg);
+
+    if(lstn->allow_client_reneg)
+            reneg_state = RENEG_ALLOW;
 
     n = 1;
     setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, (void *)&n, sizeof(n));
@@ -610,10 +661,10 @@ do_http(thr_arg *arg)
 		free(safeBuf);
         return;
     }
-    if(lstn->to > 0) {
-        BIO_set_callback_arg(cl, (char *)&lstn->to);
-        BIO_set_callback(cl, bio_callback);
-    }
+    ba1.timeout = lstn->to;
+    BIO_set_callback_arg(cl, (char *)&ba1);
+    BIO_set_callback(cl, bio_callback);
+
 
     if(lstn->ctx != NULL) {
         if((ssl = SSL_new(lstn->ctx->ctx)) == NULL) {
@@ -624,6 +675,7 @@ do_http(thr_arg *arg)
 			free(safeBuf);
             return;
         }
+        SSL_set_app_data(ssl, &reneg_state);
         SSL_set_bio(ssl, cl, cl);
         if((bb = BIO_new(BIO_f_ssl())) == NULL) {
             logmsg(LOG_WARNING, "(%lx) BIO_new(Bio_f_ssl()) failed", pthread_self());
@@ -653,6 +705,7 @@ do_http(thr_arg *arg)
             && SSL_get_verify_result(ssl) != X509_V_OK) {
                 addr2str(caddr, MAXBUF - 1, &from_host, 1);
                 logmsg(LOG_NOTICE, "Bad certificate from %s", caddr);
+                X509_free(x509);
                 BIO_reset(cl);
                 BIO_free_all(cl);
     			free(buf);
@@ -667,6 +720,8 @@ do_http(thr_arg *arg)
 
     if((bb = BIO_new(BIO_f_buffer())) == NULL) {
         logmsg(LOG_WARNING, "(%lx) BIO_new(buffer) failed", pthread_self());
+        if(x509 != NULL)
+                    X509_free(x509);
         BIO_reset(cl);
         BIO_free_all(cl);
 		free(buf);
@@ -951,10 +1006,21 @@ do_http(thr_arg *arg)
             case HEADER_CONTENT_LENGTH:
                 if(chunked || cont >= 0L)
                     headers_ok[n] = 0;
-                else
+                else {
                     if((cont = ATOL(buf)) < 0L)
-                        headers_ok[n] = 0;
+                    	headers_ok[n] = 0;
+                    if(is_rpc == 1 && (cont < 0x20000L || cont > 0x80000000L))
+						is_rpc = -1;
+                }
                 break;
+            case HEADER_EXPECT:
+				/*
+				 * we do NOT support the "Expect: 100-continue" headers
+				 * support may involve severe performance penalties (non-responding back-end, etc)
+				 * as a stop-gap measure we just skip these headers
+				 */
+				if(!strcasecmp("100-continue", buf))
+					headers_ok[n] = 0;
             case HEADER_ILLEGAL:
                 if(lstn->log_level > 0) {
                     addr2str(caddr, MAXBUF - 1, &from_host, 1);
@@ -1155,8 +1221,8 @@ do_http(thr_arg *arg)
             }
             BIO_set_close(be, BIO_CLOSE);
             if(backend->to > 0) {
-                BIO_set_callback_arg(be, (char *)&backend->to);
-                BIO_set_callback(be, bio_callback);
+            	ba2.timeout = backend->to;
+            	BIO_set_callback_arg(be, (char *)&ba2);
             }
             if(backend->ctx != NULL) {
                 if((be_ssl = SSL_new(backend->ctx)) == NULL) {
@@ -1294,12 +1360,12 @@ do_http(thr_arg *arg)
 
         /* if SSL put additional headers for client certificate */
         if(cur_backend->be_type == 0 && ssl != NULL) {
-            SSL_CIPHER  *cipher;
+            const SSL_CIPHER  *cipher;
 
             if((cipher = SSL_get_current_cipher(ssl)) != NULL) {
                 SSL_CIPHER_description(cipher, buf, workingBufferSize - 1);
                 strip_eol(buf);
-                if(BIO_printf(be, "X-SSL-cipher: %s\r\n", buf) <= 0) {
+                if(BIO_printf(be, "X-SSL-cipher: %s/%s\r\n", SSL_get_version(ssl), buf) <= 0) {
                     str_be(buf, workingBufferSize - 1, cur_backend);
                     end_req = cur_time();
                     logmsg(LOG_WARNING, "(%lx) e500 error write X-SSL-cipher to %s: %s (%.3f sec)",
@@ -1757,8 +1823,12 @@ do_http(thr_arg *arg)
                 case HEADER_CONTENT_LENGTH:
                     cont = ATOL(buf);
                     /* treat RPC_OUT_DATA like reply without content-length */
-                    if(is_rpc == 0 && cont == 0x40000000L)
-                        cont = -1L;
+                    if(is_rpc == 0) {
+                    	if(cont >= 0x20000L && cont <= 0x80000000L)
+							cont = -1L;
+						else
+							is_rpc = -1;
+                    }
                     break;
                 case HEADER_LOCATION:
                     if(v_host[0] && need_rewrite(lstn->rewr_loc, buf, loc_path, v_host, lstn, cur_backend)) {
@@ -1970,6 +2040,11 @@ do_http(thr_arg *arg)
         memset(s_res_bytes, 0, LOG_BYTES_SIZE);
         log_bytes(s_res_bytes, res_bytes);
         addr2str(caddr, MAXBUF - 1, &from_host, 1);
+        if(anonymise) {
+			char    *last;
+			if((last = strrchr(caddr, '.')) != NULL || (last = strrchr(caddr, ':')) != NULL)
+				strcpy(++last, "0");
+		}
         str_be(buf, workingBufferSize - 1, cur_backend);
         switch(lstn->log_level) {
         case 0:
@@ -2046,7 +2121,7 @@ thr_http(void *dummy)
 
     for(;;) {
         while((arg = get_thr_arg()) == NULL)
-            logmsg(LOG_WARNING, "NULL get_thr_arg");
+            logmsg(LOG_NOTICE, "NULL get_thr_arg");
         do_http(arg);
     }
 }
